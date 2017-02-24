@@ -6,7 +6,7 @@ form Select audio
 	real Pitch 70 (= Hz, mean)
 	real Pitch_SD 15 (= % of mean)
 	real Duration 1.3 (= mult. factor)
-	real HNR 5 (= dB)
+	real HNR 5 (= dB SNR)
 	real Jitter 5 (= %)
 	real Shimmer 10 (= %)
 	positive Voicing_floor_(dB) 15 (= below maximum)
@@ -31,7 +31,7 @@ endform
 ########################################################################
 #
 # Copyright (C) 2016-2017 NKI-AVL, R. J. J. H. van Son
-# R.J.J.H.vanSon@gmail.com
+# R.v.Son@nki.nl
 #
 # This program is free software: you can redistribute it and/or modify
 # it under the terms of the GNU General Public License as published by
@@ -164,7 +164,7 @@ procedure change_pitch_duration .sound .pitch .pitchFraction .durationFactor
 		Replace duration tier
 	endif
 	
-	if .currentPitch > 0
+	if .pitch > 0
 		select .pitchTier
 		.factor = (.pitch / .currentPitch)
 		Multiply frequencies: 0, .duration, .factor
