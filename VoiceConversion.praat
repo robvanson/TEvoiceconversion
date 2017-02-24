@@ -7,6 +7,8 @@ form Select audio
 	real Pitch_SD 15 (= % of mean)
 	real Duration 1.3 (= mult. factor)
 	real HNR 5 (= dB SNR)
+	real Bubbles 5 (= rate)
+	real Bubbles_SNR 15 (= dB SNR)
 	real Jitter 5 (= %)
 	real Shimmer 10 (= %)
 	positive Voicing_floor_(dB) 15 (= below maximum)
@@ -66,18 +68,20 @@ elsif recorded_audio$ <> "" and fileReadable(recorded_audio$)
 	Rename: "RecordedSpeech"
 endif
 
+bubblesAudioName$ = "bubbles.wav"
+
 .thresshold = -voicing_floor
 
 # Scale intensity:
 select .recordedSound
 global.setIntensity = Get intensity (dB)
 
-call convert_speechOverlapAndAdd  .recordedSound .thresshold jitter shimmer pitch pitch_SD duration hNR
+call convert_speechOverlapAndAdd  .recordedSound .thresshold jitter shimmer pitch pitch_SD duration hNR bubbles bubbles_SNR
 
 # Definitions of functions
 
 # Main functions
-procedure convert_speechOverlapAndAdd .recordedSound .thresshold .jitter .shimmer .pitch .pitch_SD .durationFactor .newHNR
+procedure convert_speechOverlapAndAdd .recordedSound .thresshold .jitter .shimmer .pitch .pitch_SD .durationFactor .newHNR .bubble_rate .bubble_snr
 	call change_pitch_duration .recordedSound .pitch .pitch_SD .durationFactor
 	.newPitchSound = selected("Sound")
 	
@@ -89,9 +93,12 @@ procedure convert_speechOverlapAndAdd .recordedSound .thresshold .jitter .shimme
 	select .newPitchSound
 	.recordedPulsesPeaks = To PointProcess (periodic, peaks): 60, 300, "yes", "yes"
 
-	call create_additive_noise .newPitchSound .newHNR
+	call create_additive_noise .newPitchSound .newHNR .recordedTextGrid
 	.additiveNoise = selected("Sound")
-
+	
+	call add_bubbles .newPitchSound .bubble_rate .bubble_snr .recordedTextGrid 'bubblesAudioName$'
+	.additiveBubbles = selected("Sound")
+ 	
 	# Change Jitter, use CC to determine jitter and Peaks to change the periods
 	selectObject: .recordedPulsesPeaks
 	.newPointProcess = Copy: "New_Pulses"
@@ -130,11 +137,16 @@ procedure convert_speechOverlapAndAdd .recordedSound .thresshold .jitter .shimme
 	
 	# Add noise to result
 	call add_sounds .newSound .additiveNoise
+	.resultNoise = selected("Sound")
+	Rename: "NewSpeech"
+	
+	# Add bubbles to result
+	call add_sounds .resultNoise .additiveBubbles
 	.result = selected("Sound")
 	Rename: "NewSpeech"
 	
 	# Clean up
-	selectObject: .newPitchSound, .recordedTextGrid, .recordedPulses, .recordedInt, .newPointProcess, .recordedPulsesPeaks, .newSound, .additiveNoise
+	selectObject: .newPitchSound, .recordedTextGrid, .recordedPulses, .recordedInt, .newPointProcess, .recordedPulsesPeaks, .newSound, .additiveNoise, .additiveBubbles, .resultNoise
 	Remove
 	
 	selectObject: .result
@@ -285,7 +297,7 @@ procedure extractVoicingParameters .recordedSound .thresshold
 	plus .intensity
 endproc
 
-procedure create_additive_noise .sound .newHNR
+procedure create_additive_noise .sound .newHNR .vuvTextGrid
 	select .sound
 	.duration = Get total duration
 	.sampleFreq = Get sampling frequency
@@ -313,6 +325,7 @@ procedure create_additive_noise .sound .newHNR
 			.filteredNoise = Filter: "no"
 			plus .sourceIntTier
 			.additiveNoiseSoundTMP = Multiply: "yes"
+			call set_VUV_to_zero .additiveNoiseSoundTMP .vuvTextGrid U
 			Scale intensity: .additiveNoise
 			.additiveNoiseSound = Resample: .sampleFreq, 50
 			
@@ -656,3 +669,131 @@ procedure set_VUV_to_zero .sound .vuvTextGrid .zeroLabel$
 	endfor
 	select .sound
 endproc
+
+
+# 
+# Add bubbles
+#
+#
+# Add bubbles
+# Select a random puls in the bubbles and add it to a random puls in the target
+# 
+# Creates a sound with only the bubbles
+# 
+procedure add_bubbles .sound .rate .snr .vuvTextGrid .bubblesAudioName$
+	# Get filter
+	select .sound
+	.targetIntensity = Get intensity (dB)
+	.targetDuration = Get total duration
+	.tagetSamplingFrequency = Get sampling frequency
+	.targetNumBubbles = .rate * .targetDuration
+	.downsampled = Resample: 10000, 50
+	.lpc = To LPC (autocorrelation): 10, 0.025, 0.005, 50
+	plus .downsampled
+	.source = Filter (inverse)
+	.sourceInt = To Intensity: 70, 0, "yes"
+	.sourceIntTier = To IntensityTier (peaks)
+	select .sourceInt
+	plus .downsampled
+	plus .source
+	Remove
+	
+	# Create an empty sound to receive the bubbles
+	.bubblesAudio = Read from file: .bubblesAudioName$
+	.bubblesTextGridName$ = replace_regex$(.bubblesAudioName$, "\.[a-z0-9]{2,}$", ".TextGrid", 0)
+	.bubblesTextGrid = Read from file: .bubblesTextGridName$
+	select .bubblesAudio
+	.sourceName$ = replace_regex$(selected$(), " ", "_", 0)
+	.bubblesSamplingFrequency = Get sampling frequency
+	.bubblesIntensity = Get intensity (dB)
+	.bubbleSound = Create Sound: "Bubbles", 0, .targetDuration, .bubblesSamplingFrequency, "0"
+	
+	# Fill the new Bubbles
+	select .bubblesTextGrid
+	.numIntervals = Get number of intervals: 1
+	.bubblesFound = 0
+	while .bubblesFound < .targetNumBubbles
+		.i = randomInteger(1, .numIntervals)
+		select .bubblesTextGrid
+		.label$ = Get label of interval: 1, .i
+		if .label$ = "sounding"
+			.bubblesFound += 1
+			.startPoint = Get starting point: 1, .i
+			.endPoint = Get end point: 1, .i
+			.midPoint = (.startPoint + .endPoint)/2
+			.bubbleDuration = .endPoint - .startPoint
+			
+			# Get random insertion point
+			.t = randomUniform (0.001, .targetDuration-0.001)
+			.targetStart = .t - .bubbleDuration/2
+			.targetEnd = .t + .bubbleDuration/2
+			select .bubbleSound
+			Formula (part): .targetStart, .targetEnd, 1, 1, "self + '.sourceName$'((x - .t) + .midPoint)"
+		endif
+	endwhile
+
+	# Convert selected bubbles to scaled source
+	select .bubbleSound
+	.resampledBubbleSound = Resample: .tagetSamplingFrequency, 50
+	plus .sourceIntTier
+	.scaledBubbleSource = Multiply: "yes"
+	call set_VUV_to_zero .scaledBubbleSource .vuvTextGrid U
+	
+	# The measured Intensity of the few selected bubbles can be too low. Correct for scaling
+	select .scaledBubbleSource
+	.bubbleSoundIntensity = Get intensity (dB)
+	.attenuation = .bubblesIntensity - .bubbleSoundIntensity
+	
+	# Scale bubble sounds
+	select .scaledBubbleSource
+	Scale intensity: .targetIntensity - .snr - .attenuation
+	
+	select .scaledBubbleSource
+	plus .lpc
+	.filteredBubbles = Filter: "no"
+	Rename: "FilteredBubbleNoise"
+	.additiveBubblesSound = Resample: .tagetSamplingFrequency, 50
+
+	# Clean up
+	select .resampledBubbleSound
+	plus .scaledBubbleSource
+	plus .filteredBubbles
+	plus .lpc
+	plus .sourceIntTier
+	plus .bubblesAudio
+	plus .bubblesTextGrid
+	plus .bubbleSound
+	Remove
+
+	select .additiveBubblesSound
+endproc
+
+procedure add_single_bubble .sourceAudio .sourcePulses .sourceI .targetAudio .targetPulses .targetI
+	.margin = 1
+	select .sourceAudio
+	.sourceName$ = replace_regex$(selected$(), " ", "_", 0)
+	select .targetAudio
+	.targetName$ = replace_regex$(selected$(), " ", "_", 0)
+
+	# Target
+	select .targetPulses
+	.tTarget = Get time from index: .targetI
+	.pLeft = Get interval: .tTarget - 0.001
+	.pRight = Get interval: .tTarget + 0.001
+	
+	# Source
+	select .sourcePulses
+	.tSource = Get time from index: .sourceI
+	.qLeft = Get interval: .tSource - 0.001
+	.qRight = Get interval: .tSource + 0.001
+	
+	# Gaussian window parameters (FWHM Left and Right)
+	# FWHM = 2*sqrt(2*ln(2)) * c
+	.c = (.qLeft+.qRight)/(2*sqrt(2*ln(2)))
+	if not( .cL = undefined or .cR = undefined)
+		# Copy one window
+		select .targetAudio
+		Formula (part): .tTarget-.margin, .tTarget+.margin, 1, 1, "self + '.sourceName$'((x - .tTarget) + .tSource)*exp(-1*(((x - .tTarget)/.c)^2)/2)"
+	endif
+endproc
+
