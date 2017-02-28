@@ -12,9 +12,16 @@ form Select audio
 	real Jitter 5 (= %)
 	real Shimmer 10 (= %)
 	positive Voicing_floor_(dB) 15 (= below maximum)
+	boolean Help 0
 endform
 
+########################################################################
 # 
+# VoiceConversion.praat
+#
+# Change the input speech to resemble Tracheoesophageal speech.
+# Changes the Pitch (F0) and pitch movements, duration. Filtered noise
+# is added as well as filtered "bubble" sounds.
 # Increase the Jitter and Shimmer of a speech recording to the
 # number given. Cannot reduce Jitter or Shimmer.
 # Note that Jitter and Shimmer are ill-defined in anything but
@@ -53,13 +60,63 @@ endform
 #
 ########################################################################
 # 
-# Recorded_audio: Filename of recorind. Uses selected sound object if present.
-# Jitter: New Jitter in %
-# Shimmer: New Shimmer in %
-# Voicing_floor: Stop voicing below this intensity relative to peak (dB)
+# Input parameters (<=0 means "do not change"):
+#
+# Input file    A file name (with full path). If a Sound object is selected, that will be used instead
+# Pitch         Average pitch of the new speech in Hz [F'(t) = Fnew/Fold * F(t)]
+# Pitch SD      Standard deviation of the Pitch of the new speech in Hz (compresses pitch movements)
+#               [SD'(t) = SDnew/SDold * (F(t) - Faverage) + Faverage]
+# Duration      Factor with which to multiply the duration
+# HNR           Signal to Noise ratio of new noise added to obtain the HNR given
+# Bubbles       Rate of bubble sounds added (per second). Select random bubbles from bubbles.wav&bubbles.TextGrid
+# Bubbles SNR   Signal to Noise ratio of bubble sounds added (use bubbles.wav)
+# Jitter        New jitter in %
+# Shimmer       New Shimmer in %
+# Voicing floor Lowest level of sound still considered voiced, in dB below the maximum
+# 
+# Help          Print this text and exit
+# 
+# Output:
+# The input sound converted according to the specifications
 #
 # Print debugging information
 debug = 1
+
+#
+# Output:
+# A Praat Sound object with the transformed speech
+#
+# Example:
+# praat VoiceConversion.praat Speech/Example1.wav 70 15 1.3 5 5 15 5 10 15 no
+#
+# The Help text
+#
+if help
+	clearinfo
+	printline Help text
+	printline
+	printline Input parameters (<=0 means "do not change"):
+	printline Input file'tab$''tab$'A file name (with full path). If a Sound object is selected, that will be used instead
+	printline Pitch'tab$''tab$''tab$'Average pitch of the new speech in Hz [F'(t) = Fnew/Fold * F(t)]
+	printline Pitch SD'tab$''tab$'Standard deviation of the Pitch of the new speech in Hz (compresses pitch movements)
+	printline 'tab$''tab$''tab$''tab$'[SD'(t) = SDnew/SDold * (F(t) - Faverage) + Faverage]
+	printline Duration'tab$''tab$'Factor with which to multiply the duration
+	printline HNR'tab$''tab$''tab$''tab$'Signal to Noise ratio of new noise added to obtain the HNR given
+	printline Bubbles'tab$''tab$''tab$'Rate of bubble sounds added (per second). Select random bubbles from bubbles.wav&bubbles.TextGrid
+	printline Bubbles SNR'tab$''tab$'Signal to Noise ratio of bubble sounds added (use bubbles.wav)
+	printline Jitter'tab$''tab$''tab$'New jitter in %
+	printline Shimmer'tab$''tab$''tab$'New Shimmer in %
+	printline Voicing floor'tab$'Lowest level of sound still considered voiced, in dB below the maximum
+	printline
+	printline Help'tab$''tab$''tab$'Print this text and exit
+	printline
+	printline Output:
+	printline The input sound converted according to the specifications
+	exit
+endif
+#
+#
+#
 
 if numberOfSelected("Sound") > 0
 	.recordedSound = selected("Sound")
